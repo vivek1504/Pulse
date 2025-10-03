@@ -1,70 +1,90 @@
-import { useEffect } from 'react';
-import {
-  ClerkProvider,
-  SignedIn,
-  SignedOut,
-  SignIn,
-  UserButton,
-  useAuth,
-} from '@clerk/clerk-react';
-import { io } from 'socket.io-client';
+import { useEffect, useState } from 'react';
+import socket from '../socket';
+import { useUser } from '@clerk/clerk-react';
+import axios from 'axios';
 
-const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+interface messageType {
+  from: any;
+  text: string;
+}
 
-function ChatApp() {
-  const { getToken, userId } = useAuth();
+const Chat = () => {
+  const { user } = useUser();
+  const [message, setMessage] = useState('');
+  const [messages, setMessages] = useState<messageType[]>([]);
+  const [toUserId, setToUserId] = useState('');
+  const [users, setUsers] = useState([]);
 
   useEffect(() => {
-    async function connectSocket() {
-      const token = await getToken({ template: 'default' });
-      const socket = io('http://localhost:3000', {
-        withCredentials: true,
-        extraHeaders: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+    socket.on('connect', () => {
+      socket.emit('register');
+    });
 
-      socket.on('connect', () => {
-        console.log('✅ Connected to server');
-      });
+    socket.on('private_message', ({ fromUserId, message }) => {
+      //@ts-ignore
+      setMessages((prev) => [...prev, { from: fromUserId, text: message }]);
+    });
 
-      socket.on('private_message', (data) => {
-        console.log('📩 Message:', data);
-      });
+    return () => {
+      socket.off('private_message');
+    };
+  }, []);
 
-      // Example: register yourself
-      socket.emit('register', userId);
+  useEffect(() => {
+    (async () => {
+      const response = await axios.get('http://localhost:3000/users');
+      setUsers(response.data);
+    })();
+  }, []);
 
-      // Example: send a test msg
-      setTimeout(() => {
-        socket.emit('private_message', {
-          toUserId: 'target_clerk_userId',
-          fromUserId: userId,
-          message: 'Hello from Clerk user!',
-        });
-      }, 3000);
-    }
+  const sendMessage = () => {
+    if (!toUserId || !message.trim() || !user?.id) return;
 
-    connectSocket();
-  }, [getToken, userId]);
+    socket.emit('private_message', {
+      toUserId,
+      fromUserId: user.id,
+      message,
+    });
+
+    //@ts-ignore
+    setMessages((prev) => [...prev, { from: 'me', text: message }]);
+    setMessage('');
+  };
 
   return (
-    <div>
-      <h1>Chat with Clerk</h1>
-      <UserButton afterSignOutUrl="/" />
+    <div style={{ padding: '20px' }}>
+      <h2>Private Chat</h2>
+
+      {users &&
+        users.map((u) => {
+          return (
+            <button
+              onClick={() => {
+                setToUserId(u);
+              }}
+            >
+              {u}
+            </button>
+          );
+        })}
+      <div style={{ margin: '20px 0' }}>
+        {messages &&
+          messages.map((m, i) => (
+            <div key={i}>
+              <b>{m.from}:</b> {m.text}
+            </div>
+          ))}
+      </div>
+
+      <input
+        type="text"
+        placeholder="Type a message..."
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+      />
+      <button onClick={sendMessage}>Send</button>
     </div>
   );
-}
+};
 
-export default function App() {
-  return (
-    <ClerkProvider publishableKey={clerkPubKey}>
-      <SignedIn>
-        <ChatApp />
-      </SignedIn>
-      <SignedOut>
-        <SignIn />
-      </SignedOut>
-    </ClerkProvider>
-  );
-}
+export default Chat;
