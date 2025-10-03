@@ -1,17 +1,20 @@
 import express from 'express';
+import http from 'http';
 import { Server, Socket } from 'socket.io';
-import bcrypt from 'bcrypt';
 import { clerkClient, clerkMiddleware, getAuth } from '@clerk/express';
 import cookie from 'cookie';
 import { PrismaClient } from '@prisma/client';
+import cors from 'cors';
 
 const app = express();
 const prisma = new PrismaClient();
 
 app.use(express.json());
 app.use(clerkMiddleware());
+app.use(cors());
 
-const io = new Server(3000, {
+const server = http.createServer(app);
+const io = new Server(server, {
   cors: {
     origin: '*',
     credentials: true,
@@ -26,13 +29,14 @@ interface PrivateMessagePayload {
   message: string;
 }
 
-async function getOrCreateUser(clerkUserId: string) {
-  let user = await prisma.user.findUnique({ where: { clerkId: clerkUserId } });
+async function getOrCreateUser(userId: string) {
+  let user = await prisma.user.findUnique({ where: { clerkId: userId } });
 
   if (!user) {
-    const clerkUser = await clerkClient.users.getUser(clerkUserId);
+    const clerkUser = await clerkClient.users.getUser(userId);
     user = await prisma.user.create({
       data: {
+        username: clerkUser.username || '',
         clerkId: clerkUser.id,
         email: clerkUser.emailAddresses[0]?.emailAddress || 'default@gmail.com',
       },
@@ -63,7 +67,7 @@ io.on('connection', (socket) => {
 
   socket.on('register', (userId: string) => {
     if (!socket.userId) return;
-    onlineUsers.set(userId, socket.id);
+    onlineUsers.set(socket.userId, socket.id);
     console.log('user registered:', userId);
   });
 
@@ -131,6 +135,19 @@ io.on('connection', (socket) => {
   });
 });
 
-app.listen(3000, () => {
+app.get('/users', async (req, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      select: { username: true },
+    });
+
+    res.json({ users });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json('internal server error');
+  }
+});
+
+server.listen(3000, () => {
   console.log('listening');
 });
