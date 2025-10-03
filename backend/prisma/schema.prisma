@@ -8,9 +8,9 @@ datasource db {
 }
 
 model User {
-  id       Int    @id @default(autoincrement())
-  email    String @unique
-  password String
+  id      Int    @id @default(autoincrement())
+  email   String @unique
+  clerkId String @unique
 
   chats    Chat[]    @relation("ChatMembers")
   messages Message[] @relation("SentMessages")
